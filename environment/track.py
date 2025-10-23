@@ -118,31 +118,56 @@ class RaceTrack():
         s = s % self.total_length
         return np.interp(s, self.s, self.curvature)
 
-    def visualize(self, show_curvature=False, car_state = None):
-        '''
-        Utility function to display track and car position
-        '''
-        fig, ax = plt.subplots(figsize=(8, 6))
+    def visualize(self, show_curvature=False, car_state=None, ax=None, car_traj=None):
+        """
+        Display the racetrack and optionally:
+        - color centerline by curvature
+        - show car state (x, y, heading)
+        - overlay trajectory (car_traj: list of (x, y))
+        """
+        # Use existing axis if provided, else make new one
+        if ax is None:
+            fig, ax = plt.subplots(figsize=(8, 6))
+
+        # Draw track centerline
         if show_curvature:
-            c = self.curvature / np.max(self.curvature)
-            ax.scatter(self.centerline[:,0], self.centerline[:,1],
-                       c=c, cmap='cool', s=5, label='Curvature')
+            c = self.curvature / (np.max(np.abs(self.curvature)) + 1e-8)
+            ax.scatter(self.centerline[:, 0], self.centerline[:, 1],
+                    c=c, cmap='cool', s=5, label='Curvature')
         else:
-            ax.plot(self.centerline[:,0], self.centerline[:,1], '-k', lw=2, label='Centerline')
+            ax.plot(self.centerline[:, 0], self.centerline[:, 1],
+                    '-k', lw=2, label='Centerline')
 
-        ax.plot(self.left_boundary[:,0], self.left_boundary[:,1], '--', color='gray', lw=1)
-        ax.plot(self.right_boundary[:,0], self.right_boundary[:,1], '--', color='gray', lw=1)
+        # Draw boundaries
+        ax.plot(self.left_boundary[:, 0], self.left_boundary[:, 1],
+                '--', color='gray', lw=1)
+        ax.plot(self.right_boundary[:, 0], self.right_boundary[:, 1],
+                '--', color='gray', lw=1)
 
+        # Optional car trajectory overlay
+        if car_traj is not None and len(car_traj) > 1:
+            traj = np.array(car_traj)
+            ax.plot(traj[:, 0], traj[:, 1], color='orange', lw=2, label='Trajectory')
+
+        # Optional car state (position + heading)
         if car_state is not None:
             x, y, heading = car_state
             ax.plot(x, y, 'ro', markersize=8)
-            ax.arrow(x, y, 2*np.cos(heading), 2*np.sin(heading),
-                     head_width=0.5, color='r', length_includes_head=True)
+            ax.arrow(x, y,
+                    2 * np.cos(heading), 2 * np.sin(heading),
+                    head_width=0.5, color='r', length_includes_head=True,
+                    alpha=0.8)
 
         ax.set_title(f"Track: {self.name}")
         ax.axis('equal')
-        ax.legend()
-        plt.savefig("track.png")
+        ax.legend(loc='best')
+        plt.savefig(f"{self.name}_track.png", dpi=150)
+        # If not embedded in another figure, save or show
+        if ax is None:
+            plt.tight_layout()
+            plt.savefig(f"{self.name}_track.png", dpi=150)
+            plt.close()
+
 
 
 if __name__ == '__main__':
@@ -151,7 +176,6 @@ if __name__ == '__main__':
     waypoints = np.stack([50*np.cos(theta), 30*np.sin(theta)], axis=1)
 
     track = RaceTrack(waypoints, name="Oval", trackwidth=10)
-    
 
     # test car position
     x, y, heading = 10, 26, 180
