@@ -4,7 +4,7 @@ Contains car object based on kinematic bicycle model
 import numpy as np
 
 class SimpleCar:
-    def __init__(self, init_pos, init_yaw=0.0, wheelbase=2.5, dt=0.1, max_speed=50.0, max_steer = np.deg2rad(30), accel_rate = 10.0, brake_rate= 20.0, c_drag=0.0025, c_roll=0.015, k_slip=0.02):
+    def __init__(self, init_pos, init_yaw=0.0, wheelbase=2.5, dt=0.1, max_speed=150.0, max_steer = np.deg2rad(30), accel_rate = 10.0, brake_rate= 20.0, c_drag=0.0025, c_roll=0.015, k_slip=0.02):
         '''
         Basic kinematic car model.
         Args:

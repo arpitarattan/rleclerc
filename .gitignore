@@ -2,3 +2,6 @@ environment/tracks/
 environment/track.png
 environment/race.gif
 environment/rewards.jpg
+_frames_tmp/
+dqn_checkpoints/
+kinda_learned/

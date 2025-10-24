@@ -4,7 +4,7 @@ Environment wrapper for race simulator gym
 
 import numpy as np
 import matplotlib.pyplot as plt
-import os, imageio
+import os, imageio, shutil
 
 class RacingEnv:
     '''
@@ -31,7 +31,6 @@ class RacingEnv:
         '''
         Reset car to starting line
         '''
-
         start_pos = self.track.centerline[0]
         tangent = self.track.centerline[1] - self.track.centerline[0]
         init_yaw = np.arctan2(tangent[1], tangent[0])
@@ -39,6 +38,12 @@ class RacingEnv:
         self.car.reset(start_pos, yaw=init_yaw)
         self.prev_s = 0.0
         self.step_count = 0
+        self.lap_completed = False
+        self.prev_progress = 0.0
+        self.lap_start_time = 0.0  # start lap timer
+        self.current_lap_time = 0.0
+        self.lap_times = []
+        self.lap_start_step = 0
 
         obs = self._get_obs()
         return obs
@@ -73,7 +78,7 @@ class RacingEnv:
         ])
         return obs
 
-    def step(self, action):
+    def step(self, action, debug=False):
         '''
         Step the environment given action 
         '''
@@ -81,48 +86,130 @@ class RacingEnv:
         self.car.step(throttle, steer)
         self.step_count += 1
 
+        # update lap time
+        self.current_lap_time = self.step_count * self.dt
+
         obs = self._get_obs() # Get state from action
-        reward = self._compute_reward(obs)
-        done = self._check_done(obs)
 
-        info = {'s_progress': obs[4]}
-        return obs, reward, done, info
-    
-    def _compute_reward(self, obs):
-        '''
-        Reward funciton that:
-            + progress along track
-            + alignment with track direction
-            + speed maintenance
-            - penalty if off track
-        '''
-
-        v_norm, heading_err, lat_err, curvature, progress = obs
-        progress_delta = progress - self.prev_s
+        done = False
+        #Check if lap complete <===== need to verify this works
+        progress = obs[4]
+        delta_s = progress - self.prev_s
+        if delta_s < -0.5:  # wrapped around
+            self.lap_wrap_counter = getattr(self, "lap_wrap_counter", 0) + 1
+            if self.lap_wrap_counter >= 3:
+                self.lap_completed = True
+                done = True
+                self.lap_wrap_counter = 0
+        else:
+            self.lap_wrap_counter = 0
         self.prev_s = progress
 
-        # Reward terms
-        reward_progress = 200.0 * max(progress_delta, 0)
-        reward_align = np.cos(heading_err)
-        reward_speed = 0.5 * v_norm
+        reward = self._compute_reward(obs, debug)
+        done = self._check_done(obs) or done
 
-        # Combine terms
-        reward = reward_progress * reward_align + reward_speed
-
-        # Off_track penalty
-        if abs(lat_err) > 1.0:
-            reward -= 10.0
-        
-        return reward
+        info = {'s_progress': obs[4],
+            'lap_time': self.current_lap_time,
+            'lap_completed': self.lap_completed}
+        return obs, reward, done, info
     
+    def _compute_reward(self, obs, debug):
+        """
+        Compute reward for the current car state.
+        Combines:
+        - forward progress along track
+        - speed incentive
+        - alignment with track heading
+        - lateral error penalty
+        - distance-based off-track penalty
+        - optional lap completion bonus
+        """
+        # unpack observation
+        v_norm, heading_err, lat_err, curvature, progress = obs
+
+        # -------------------------
+        # 1. Track progress reward
+        # -------------------------
+        delta_m = (progress - self.prev_s) * self.track.track_length
+        # handle wrap-around if car loops over s=0
+        if delta_m < -0.5 * self.track.track_length:
+            delta_m += self.track.track_length
+        self.prev_s = progress
+        reward_progress = 50.0 * delta_m  # reward per meter
+
+        # -------------------------
+        # 2. Speed reward
+        # -------------------------
+        reward_speed = 30.0 * v_norm + 5.0 * v_norm**2  # nonlinear incentive for faster speed
+        if v_norm < 0.05:   # almost stationary
+            reward_speed -= 5  # small negative reward
+        # -------------------------
+        # 3. Heading alignment
+        # -------------------------
+        reward_heading = 1.0 * np.cos(heading_err)
+
+        # -------------------------
+        # 4. Lateral error penalty
+        # -------------------------
+        reward_lateral = -2.0 * np.clip(abs(lat_err), 0, 1.0)
+
+        # -------------------------
+        # 5. True distance-based off-track penalty
+        # -------------------------
+        car_pos = np.array([self.car.x, self.car.y])
+        track_pts = self.track.centerline
+        nearest_idx = np.argmin(np.linalg.norm(track_pts - car_pos, axis=1))
+        nearest_pt = track_pts[nearest_idx]
+        dist_offtrack = np.linalg.norm(car_pos - nearest_pt)
+
+        offtrack_penalty = 0.0
+        if dist_offtrack > self.track.trackwidth / 2:
+            offtrack_penalty = -50.0  # strong penalty
+            # optionally terminate episode early
+            self.done = True
+
+        # -------------------------
+        # 6. Optional lap completion bonus
+        # -------------------------
+        lap_bonus = 0.0
+        if self.lap_completed:
+            lap_bonus = 1000.0  # reward for finishing lap
+
+        # -------------------------
+        # 7. Combine all components
+        # -------------------------
+        reward = reward_progress + reward_speed + reward_heading + reward_lateral + offtrack_penalty + lap_bonus
+
+        # Clip reward to avoid TD explosion
+        reward = np.clip(reward, -50, 50)
+
+        if debug: 
+            # Debug logging (optional)
+            print(f"[REW DEBUG] Δm={delta_m:.4f}, prog={progress:.3f}, speed={v_norm:.3f}, "
+                f"head={np.cos(heading_err):.3f}, lat={lat_err:.3f}, dist_off={dist_offtrack:.3f}, "
+                f"off={offtrack_penalty:.3f} -> total={reward:.3f}")
+
+        return reward
+
     def _check_done(self, obs):
-        '''
-        Terminate if off track or max steps
-        '''
+        """
+        Terminate if:
+        - off-track
+        - max steps
+        - optional: completed a full lap
+        """
         _, lat_err, _, _, _ = obs
-        if abs(lat_err) > 1.0: return True 
-        if self.step_count >= self.max_steps: return True
+        
+        # Off-track
+        if abs(lat_err) > self.track.trackwidth / 2:
+            return True
+
+        # Max steps
+        if self.step_count >= self.max_steps:
+            return True
+
         return False
+
     
     def _wrap_angle(self, angle):
         return (angle + np.pi) % (2 * np.pi) - np.pi
@@ -175,7 +262,6 @@ class RacingEnv:
         else:
             raise ValueError("mode must be either 'realtime' or 'gif'")
 
-
     def save_gif(self, filename="race.gif", fps=30):
         """Combine saved frames into an animated GIF."""
         if not hasattr(self, "_frames"):
@@ -187,9 +273,9 @@ class RacingEnv:
         print(f"Saved animation to {filename}")
 
         # Cleanup
-        for f in self._frames:
-            os.remove(f)
-        os.rmdir(self._tmp_dir)
+        if hasattr(self, "_tmp_dir") and os.path.exists(self._tmp_dir):
+            shutil.rmtree(self._tmp_dir)
+
         del self._frames
 
 
