@@ -5,3 +5,4 @@ environment/rewards.jpg
 _frames_tmp/
 dqn_checkpoints/
 kinda_learned/
+ppo_checkpoints/

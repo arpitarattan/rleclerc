@@ -74,7 +74,7 @@ class DQNAgent:
         r = torch.tensor(batch.reward, dtype=torch.float32, device=self.device).unsqueeze(1)
         ns = torch.tensor(np.array(batch.next_state), dtype=torch.float32, device=self.device)
         done = torch.tensor(batch.done, dtype=torch.float32, device=self.device).unsqueeze(1)
-
+        
         q_vals = self.net(s).gather(1, a) 
         with torch.no_grad():
             q_next = self.target(ns).max(1)[0].unsqueeze(1)

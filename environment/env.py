@@ -91,27 +91,32 @@ class RacingEnv:
 
         obs = self._get_obs() # Get state from action
 
-        done = False
-        #Check if lap complete <===== need to verify this works
-        progress = obs[4]
+        # --- Lap completion check ---
+        progress = obs[4]  # normalized progress ∈ [0, 1)
         delta_s = progress - self.prev_s
-        if delta_s < -0.5:  # wrapped around
-            self.lap_wrap_counter = getattr(self, "lap_wrap_counter", 0) + 1
-            if self.lap_wrap_counter >= 3:
-                self.lap_completed = True
-                done = True
-                self.lap_wrap_counter = 0
-        else:
-            self.lap_wrap_counter = 0
+
+        # Detect wraparound (progress jumped from near 1 → near 0)
+        if delta_s < -0.5:
+            self.lap_completed = True
+            self.lap_times.append(self.current_lap_time)
+            print(f"[LAP COMPLETE] Lap {len(self.lap_times)} in {self.current_lap_time:.2f} s")
+            self.current_lap_time = 0.0  # reset lap timer
+            self.lap_start_step = self.step_count
+
         self.prev_s = progress
 
+        self.done = False
         reward = self._compute_reward(obs, debug)
-        done = self._check_done(obs) or done
+
+        if self.step_count == 1: reward = max(reward, -1.0)
+        done = self._check_done(obs)
 
         info = {'s_progress': obs[4],
             'lap_time': self.current_lap_time,
-            'lap_completed': self.lap_completed}
-        return obs, reward, done, info
+            'lap_completed': self.lap_completed,
+            "lap_times": self.lap_times}
+        
+        return obs, reward, done | self.done , info
     
     def _compute_reward(self, obs, debug):
         """
@@ -160,20 +165,21 @@ class RacingEnv:
         track_pts = self.track.centerline
         nearest_idx = np.argmin(np.linalg.norm(track_pts - car_pos, axis=1))
         nearest_pt = track_pts[nearest_idx]
-        dist_offtrack = np.linalg.norm(car_pos - nearest_pt)
+        self.dist_offtrack = np.linalg.norm(car_pos - nearest_pt)
 
         offtrack_penalty = 0.0
-        if dist_offtrack > self.track.trackwidth / 2:
+        if self.dist_offtrack > self.track.trackwidth / 2:
             offtrack_penalty = -50.0  # strong penalty
             # optionally terminate episode early
-            self.done = True
+            if self.dist_offtrack > self.track.trackwidth:
+                self.done = True
 
         # -------------------------
         # 6. Optional lap completion bonus
         # -------------------------
         lap_bonus = 0.0
-        if self.lap_completed:
-            lap_bonus = 1000.0  # reward for finishing lap
+        if self.lap_completed and len(self.lap_times) == 1:  # new lap just completed
+            lap_bonus = 1000.0
 
         # -------------------------
         # 7. Combine all components
@@ -186,10 +192,12 @@ class RacingEnv:
         if debug: 
             # Debug logging (optional)
             print(f"[REW DEBUG] Δm={delta_m:.4f}, prog={progress:.3f}, speed={v_norm:.3f}, "
-                f"head={np.cos(heading_err):.3f}, lat={lat_err:.3f}, dist_off={dist_offtrack:.3f}, "
+                f"head={np.cos(heading_err):.3f}, lat={lat_err:.3f}, dist_off={self.dist_offtrack:.3f}, "
                 f"off={offtrack_penalty:.3f} -> total={reward:.3f}")
 
         return reward
+
+
 
     def _check_done(self, obs):
         """
