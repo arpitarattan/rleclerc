@@ -5,21 +5,32 @@ from agents.ppo import PPOAgent
 from collections import deque
 import numpy as np
 import os, torch
+from environment.circuit2waypoint import extract_track_from_image
 
 # --- Hyperparameters ---
 
 num_episodes = 2000
-max_steps = 500
+max_steps = 2000
 save_dir = "./ppo_checkpoints"
-save_every = 50  # save every N episodes
+save_every = 100  # save every N episodes
 os.makedirs(save_dir, exist_ok=True)
-gif_every = 50  # optional
+gif_every = 20  # optional
 
 # --- Create environment ---
 
-theta = np.linspace(0, 2 * np.pi, 2000)
-waypoints = np.stack([50 * np.cos(theta), 30 * np.sin(theta)], axis=1)
-track = RaceTrack(waypoints, trackwidth=10)
+# theta = np.linspace(0, 2 * np.pi, 2000)
+# waypoints = np.stack([50 * np.cos(theta), 30 * np.sin(theta)], axis=1)
+# track = RaceTrack(waypoints, trackwidth=10)
+
+# Silverstone
+waypoints = extract_track_from_image(
+    "environment/tracks/silverstone.jpeg",
+    invert=True,
+    plot_steps=False
+)
+print('Extracted waypoints')
+track = RaceTrack(waypoints, name="Silverstone", trackwidth=15)
+
 car = SimpleCar(init_pos=track.centerline[0])
 env = RacingEnv(track, car, max_steps=max_steps)
 
@@ -29,8 +40,8 @@ obs_dim = env.obs_dim
 act_dim = env.action_dim
 agent = PPOAgent(obs_dim, act_dim, device='cuda')
 
-print('Using Pretrained Model...')
-agent.load('./ppo_checkpoints/ppo_ep00500.pt', map_location='cuda')
+# print('Using Pretrained Model...')
+# agent.load('./ppo_checkpoints/ppo_ep00500.pt', map_location='cuda')
 lap_time_window = deque(maxlen=20)  # rolling average for smoother stats
 
 # --- Training loop ---
@@ -73,8 +84,8 @@ for ep in range(num_episodes):
     mean_lap_time = np.mean(lap_times_this_ep) if lap_times_this_ep else np.nan
     avg_recent_laps = np.mean(lap_time_window) if len(lap_time_window) > 0 else np.nan
 
-    print(f"EP {ep:4d} | Reward: {ep_reward:8.2f} | Laps: {laps_this_ep:2d} | "
-          f"Mean Lap: {mean_lap_time:6.2f}s | Rolling Avg: {avg_recent_laps:6.2f}s")
+    print(f"EP {ep:4d} | Reward: {ep_reward:8.2f} ")# Laps: {laps_this_ep:2d} | "
+         # f"Mean Lap: {mean_lap_time:6.2f}s | Rolling Avg: {avg_recent_laps:6.2f}s")
 
     agent.update()       
 
@@ -96,7 +107,7 @@ for ep in range(num_episodes):
         render_every = 10
         while not done_vis and steps_gif < max_steps:
             a_vis = agent.act(s_vis)
-            ns_vis, r_vis, done_vis, info_vis = env.step(a_vis)
+            ns_vis, r_vis, done_vis, info_vis = env.step(a_vis, debug = True)
             if steps_gif % render_every == 0:
                 env.render(mode="gif")
             s_vis = ns_vis

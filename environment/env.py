@@ -96,12 +96,12 @@ class RacingEnv:
         delta_s = progress - self.prev_s
 
         # Detect wraparound (progress jumped from near 1 → near 0)
-        if delta_s < -0.5:
-            self.lap_completed = True
-            self.lap_times.append(self.current_lap_time)
-            print(f"[LAP COMPLETE] Lap {len(self.lap_times)} in {self.current_lap_time:.2f} s")
-            self.current_lap_time = 0.0  # reset lap timer
-            self.lap_start_step = self.step_count
+        # if delta_s < -0.5:
+        #     self.lap_completed = True
+        #     self.lap_times.append(self.current_lap_time)
+        #     print(f"[LAP COMPLETE] Lap {len(self.lap_times)} in {self.current_lap_time:.2f} s")
+        #     self.current_lap_time = 0.0  # reset lap timer
+        #     self.lap_start_step = self.step_count
 
         self.prev_s = progress
 
@@ -146,8 +146,8 @@ class RacingEnv:
         # 2. Speed reward
         # -------------------------
         reward_speed = 30.0 * v_norm + 5.0 * v_norm**2  # nonlinear incentive for faster speed
-        if v_norm < 0.05:   # almost stationary
-            reward_speed -= 5  # small negative reward
+        if v_norm > 0.001:   # almost stationary
+            reward_speed += 5  # small negative reward
         # -------------------------
         # 3. Heading alignment
         # -------------------------
@@ -156,7 +156,7 @@ class RacingEnv:
         # -------------------------
         # 4. Lateral error penalty
         # -------------------------
-        reward_lateral = -2.0 * np.clip(abs(lat_err), 0, 1.0)
+        reward_lateral = -1.0 * np.clip(abs(lat_err), 0, 1.0)
 
         # -------------------------
         # 5. True distance-based off-track penalty

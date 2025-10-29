@@ -149,11 +149,6 @@ class PPOAgent:
             return  # skip empty episodes
 
         advantages, returns = self.compute_advantages()
-
-        # normalize advantages
-        #raw_adv = advantages.clone()
-        #print(f"Raw advantages mean={raw_adv.mean().item():.4f}, std={raw_adv.std().item():.4f}")
-
         advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
 
         states = torch.cat(self.states)
