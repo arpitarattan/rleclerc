@@ -40,11 +40,11 @@ class DQNAgent:
             self.net.load_state_dict(state_dict)
         self.target.load_state_dict(self.net.state_dict())
             
-        self.optimizer = optim.Adam(self.net.parameters(), lr= 1e-4)
+        self.optimizer = optim.Adam(self.net.parameters(), lr= 3e-4)
         self.replay = deque(maxlen= 10000)
-        self.batch_size = 64
+        self.batch_size = 128
         self.gamma = 0.99
-        self.eps = 1.0
+        self.eps = 0.1
         self.eps_min = 0.05
         self.eps_decay = 1e-5
         self.update_steps = 0

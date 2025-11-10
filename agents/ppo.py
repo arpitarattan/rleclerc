@@ -59,7 +59,7 @@ class Critic(nn.Module):
 # ============================================
 
 class PPOAgent:
-    def __init__(self, obs_dim, act_dim, lr=1e-4, gamma=0.99, clip_eps=0.1,
+    def __init__(self, obs_dim, act_dim, lr=1e-4, gamma=0.99, clip_eps=0.10,
         lam=0.97, K_epochs=20, device='cpu'):
         self.device = device
         self.gamma = gamma

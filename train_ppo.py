@@ -14,7 +14,7 @@ max_steps = 2000
 save_dir = "./ppo_checkpoints"
 save_every = 100  # save every N episodes
 os.makedirs(save_dir, exist_ok=True)
-gif_every = 20  # optional
+gif_every = 30  # optional
 
 # --- Create environment ---
 
@@ -24,14 +24,14 @@ gif_every = 20  # optional
 
 # Silverstone
 waypoints = extract_track_from_image(
-    "environment/tracks/silverstone.jpeg",
+    "environment/tracks/monza.jpeg",
     invert=True,
     plot_steps=False
 )
 print('Extracted waypoints')
-track = RaceTrack(waypoints, name="Silverstone", trackwidth=15)
+track = RaceTrack(waypoints, name="Monza", trackwidth=20)
 
-car = SimpleCar(init_pos=track.centerline[0])
+car = SimpleCar(init_pos=track.centerline[0], max_speed=200, accel_rate=15)
 env = RacingEnv(track, car, max_steps=max_steps)
 
 # --- Create PPO agent ---
@@ -40,8 +40,8 @@ obs_dim = env.obs_dim
 act_dim = env.action_dim
 agent = PPOAgent(obs_dim, act_dim, device='cuda')
 
-# print('Using Pretrained Model...')
-# agent.load('./ppo_checkpoints/ppo_ep00500.pt', map_location='cuda')
+print('Using Pretrained Model...')
+agent.load('./ppo_checkpoints/ppo_ep00900.pt', map_location='cuda')
 lap_time_window = deque(maxlen=20)  # rolling average for smoother stats
 
 # --- Training loop ---

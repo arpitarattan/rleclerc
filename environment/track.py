@@ -65,13 +65,24 @@ class RaceTrack():
         self.curvature = np.abs(dx * d2y - dy * d2x) / (dx**2 + dy**2) ** 1.5
 
     def _compute_boundaries(self):
-        '''
-        Compute track boundaries given centerline and width for off-track detection
-        '''
-        n = np.stack([-np.sin(self.headings), np.cos(self.headings)], axis = 1)
-        offset = (self.trackwidth / 2.0) * n
-        self.left_boundary = self.centerline + offset
-        self.right_boundary = self.centerline - offset
+        """
+        Compute left/right track boundaries with consistent normal direction.
+        """
+        pts = self.centerline
+        tangents = np.gradient(pts, axis=0)
+        tangents /= np.linalg.norm(tangents, axis=1, keepdims=True) + 1e-8
+
+        # Rotate tangents by +90° for normals
+        normals = np.column_stack([-tangents[:, 1], tangents[:, 0]])
+
+        # Smooth the normals to avoid flipping (important!)
+        for i in range(1, len(normals)):
+            if np.dot(normals[i], normals[i - 1]) < 0:
+                normals[i] *= -1
+
+        half_w = self.trackwidth / 2.0
+        self.left_boundary = pts + half_w * normals
+        self.right_boundary = pts - half_w * normals
 
     # Public class methods
     def xy_from_s(self, s):
@@ -118,55 +129,50 @@ class RaceTrack():
         s = s % self.total_length
         return np.interp(s, self.s, self.curvature)
 
-    def visualize(self, show_curvature=False, car_state=None, ax=None, car_traj=None):
+    def visualize(self, car_state=None, ax=None, car_traj=None):
         """
-        Display the racetrack and optionally:
-        - color centerline by curvature
-        - show car state (x, y, heading)
-        - overlay trajectory (car_traj: list of (x, y))
+        Lightweight racetrack visualization:
+        - Gray track
+        - Green grass
+        - White dashed boundaries
+        - Optional car trajectory and car marker
         """
-        # Use existing axis if provided, else make new one
+
         if ax is None:
             fig, ax = plt.subplots(figsize=(8, 6))
 
-        # Draw track centerline
-        if show_curvature:
-            c = self.curvature / (np.max(np.abs(self.curvature)) + 1e-8)
-            ax.scatter(self.centerline[:, 0], self.centerline[:, 1],
-                    c=c, cmap='cool', s=5, label='Curvature')
-        else:
-            ax.plot(self.centerline[:, 0], self.centerline[:, 1],
-                    '-k', lw=2, label='Centerline')
+        # Grass background
+        ax.set_facecolor("#77b255")  # green grass
 
-        # Draw boundaries
+        # Track asphalt as polygon
+        track_poly_x = np.concatenate([self.left_boundary[:, 0], self.right_boundary[::-1, 0]])
+        track_poly_y = np.concatenate([self.left_boundary[:, 1], self.right_boundary[::-1, 1]])
+        ax.fill(track_poly_x, track_poly_y, color="#4f4f4f", zorder=1)  # gray asphalt
+
+        # Boundaries
         ax.plot(self.left_boundary[:, 0], self.left_boundary[:, 1],
-                '--', color='gray', lw=1)
+                '--', color='white', lw=1, alpha=0.9, dashes=(5, 5))
         ax.plot(self.right_boundary[:, 0], self.right_boundary[:, 1],
-                '--', color='gray', lw=1)
+                '--', color='white', lw=1, alpha=0.9, dashes=(5, 5))
 
-        # Optional car trajectory overlay
+        # Car trajectory
         if car_traj is not None and len(car_traj) > 1:
             traj = np.array(car_traj)
-            ax.plot(traj[:, 0], traj[:, 1], color='orange', lw=2, label='Trajectory')
+            ax.plot(traj[:, 0], traj[:, 1], color='orange', lw=2, alpha=0.8)
 
-        # Optional car state (position + heading)
+        # Car marker
         if car_state is not None:
             x, y, heading = car_state
-            ax.plot(x, y, 'ro', markersize=8)
+            ax.plot(x, y, 'ro', markersize=6)
             ax.arrow(x, y,
                     2 * np.cos(heading), 2 * np.sin(heading),
-                    head_width=0.5, color='r', length_includes_head=True,
-                    alpha=0.8)
+                    head_width=0.5, color='r', length_includes_head=True)
 
-        ax.set_title(f"Track: {self.name}")
-        ax.axis('equal')
-        ax.legend(loc='best')
-        plt.savefig(f"{self.name}_track.png", dpi=150)
-        # If not embedded in another figure, save or show
-        if ax is None:
-            plt.tight_layout()
-            plt.savefig(f"{self.name}_track.png", dpi=150)
-            plt.close()
+        ax.axis("equal")
+        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_title(self.name, fontsize=12, pad=10)
+        return ax
+
 
 
 

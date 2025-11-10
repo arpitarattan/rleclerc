@@ -116,7 +116,7 @@ def train_dqn(env, agent, action_map,
             print(f"Episode {ep} completed a lap in {lap_time:.2f} seconds")
         else:
             lap_time = float('inf')
-            print(f"Episode {ep} ended at step {env.step_count}, lap not completed")
+            print(f"Episode {ep} ended at step {env.step_count}, progress: {env.prev_s}")
 
  
         if ep_reward > best_reward:
@@ -135,7 +135,7 @@ def train_dqn(env, agent, action_map,
             print(f'Saved model parameters for ep {ep} to: {ckpt_name}')
     
         # Save gifs
-        if gif_every is not None and ep % gif_every == 0:
+        if (gif_every is not None and ep % gif_every == 0) or env.prev_s > 0.85:
             try:
                 gif_path = os.path.join(save_dir, f"policy_ep{ep:05d}.gif")
                 print(f"Generating GIF for episode {ep}...")
@@ -155,7 +155,7 @@ def train_dqn(env, agent, action_map,
                 while not done_vis and steps_gif < max_steps_per_episode:
                     a_idx = agent.act(s_vis)
                     action = action_map[int(a_idx)] if isinstance(a_idx, (int, np.integer)) else action_map[np.random.randint(len(action_map))]
-                    ns_vis, r_vis, done_vis, info_vis = env.step(action, debug = True)
+                    ns_vis, r_vis, done_vis, info_vis = env.step(action)
 
                     # Render only every N-th step
                     if steps_gif % render_every == 0:
@@ -186,12 +186,12 @@ if __name__ == "__main__":
 
     # Silverstone
     waypoints = extract_track_from_image(
-        "environment/tracks/silverstone.jpeg",
+        "environment/tracks/saopaulo.png",
         invert=True,
         plot_steps=False
     )
     print('Extracted waypoints')
-    track = RaceTrack(waypoints, name="Silverstone", trackwidth=15)
+    track = RaceTrack(waypoints, name="Sao Paulo", trackwidth=15)
 
     car = SimpleCar(init_pos=track.centerline[0])
     env = RacingEnv(track=track, car=car)
@@ -199,7 +199,7 @@ if __name__ == "__main__":
     # build discrete action mapping (throttle x steering)
     action_map = build_discrete_actions(n_throttle=3, n_steer=3,
                                         throttle_range=(-1.0, 2.5),
-                                        steer_range=(-0.8, 0.8),
+                                        steer_range=(-1, 1),
                                         include_brake=True)
     action_size = len(action_map)
 
@@ -217,14 +217,14 @@ if __name__ == "__main__":
 
     # instantiate your DQNAgent (constructor args may vary; adapt as needed)
     # Typical signature (state_size, action_size, **kwargs)
-    agent = DQNAgent(obs_dim=state_size, n_actions=action_size, dict_path= '/mnt/cloudNAS3/arpita/Projects/rleclerc/dqn_checkpoints/dqn_ep00100')
+    agent = DQNAgent(obs_dim=state_size, n_actions=action_size, dict_path= '/mnt/cloudNAS3/arpita/Projects/rleclerc/dqn_checkpoints/dqn_ep02500')
     print(f'Using: {agent.device}')
     # run training
     train_dqn(env, agent,
               action_map,
-              num_episodes=1000,
-              max_steps_per_episode=2000,
+              num_episodes=3000,
+              max_steps_per_episode=4000,
               save_dir="dqn_checkpoints",
-              checkpoint_every=50,
-              gif_every=20,
+              checkpoint_every=100,
+              gif_every=100,
               verbose=True)

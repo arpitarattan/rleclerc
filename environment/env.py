@@ -12,7 +12,7 @@ class RacingEnv:
     Observation: state vector
     Action: Can be discrete or continuous actions on throttle + steer
     '''
-    def __init__(self, track, car, dt = 0.1, max_steps = 2000):
+    def __init__(self, track, car, dt = 0.1, max_steps = 3000):
         self.track = track
         self.car = car
         self.dt = dt
@@ -118,7 +118,7 @@ class RacingEnv:
         
         return obs, reward, done | self.done , info
     
-    def _compute_reward(self, obs, debug):
+    def _compute_reward(self, obs, debug = False):
         """
         Compute reward for the current car state.
         Combines:
@@ -129,7 +129,10 @@ class RacingEnv:
         - distance-based off-track penalty
         - optional lap completion bonus
         """
-        # unpack observation
+       
+        # -------------------------
+        # Unpack observation
+        # -------------------------
         v_norm, heading_err, lat_err, curvature, progress = obs
 
         # -------------------------
@@ -140,23 +143,24 @@ class RacingEnv:
         if delta_m < -0.5 * self.track.track_length:
             delta_m += self.track.track_length
         self.prev_s = progress
-        reward_progress = 50.0 * delta_m  # reward per meter
+        reward_progress = 50.0 * delta_m  # reward per meter forward progress
 
         # -------------------------
         # 2. Speed reward
         # -------------------------
-        reward_speed = 30.0 * v_norm + 5.0 * v_norm**2  # nonlinear incentive for faster speed
-        if v_norm > 0.001:   # almost stationary
-            reward_speed += 5  # small negative reward
+        reward_speed = 30.0 * v_norm + 5.0 * v_norm**2  # nonlinear incentive for higher speed
+        if v_norm < 0.05:   # almost stationary
+            reward_speed -= 5.0  # small penalty
+
         # -------------------------
         # 3. Heading alignment
         # -------------------------
-        reward_heading = 1.0 * np.cos(heading_err)
+        reward_heading = 1.0 * np.cos(heading_err)  # positive if aligned with track
 
         # -------------------------
         # 4. Lateral error penalty
         # -------------------------
-        reward_lateral = -1.0 * np.clip(abs(lat_err), 0, 1.0)
+        reward_lateral = -2.0 * np.clip(abs(lat_err), 0, 1.0)  # gentle penalty for being off-center
 
         # -------------------------
         # 5. True distance-based off-track penalty
@@ -168,35 +172,56 @@ class RacingEnv:
         self.dist_offtrack = np.linalg.norm(car_pos - nearest_pt)
 
         offtrack_penalty = 0.0
-        if self.dist_offtrack > self.track.trackwidth / 2:
-            offtrack_penalty = -50.0  # strong penalty
-            # optionally terminate episode early
-            if self.dist_offtrack > self.track.trackwidth:
-                self.done = True
+        if self.dist_offtrack > self.track.trackwidth * 0.75:
+            offtrack_penalty = -50.0  # strong penalty for leaving the track
+            self.done = True          # immediate episode termination
 
         # -------------------------
-        # 6. Optional lap completion bonus
+        # 6. Stationary timeout logic
+        # -------------------------
+        # Track consecutive steps with near-zero velocity
+        if not hasattr(self, "stationary_steps"):
+            self.stationary_steps = 0
+
+        if v_norm < 0.0001:
+            self.stationary_steps += 1
+        else:
+            self.stationary_steps = 0
+
+        # If car is stationary for too long, terminate episode
+        max_stationary_steps = 300  # adjust depending on timestep frequency
+        if self.stationary_steps > max_stationary_steps:
+            self.done = True
+            reward_speed -= 50.0  # final penalty for idling
+
+        # -------------------------
+        # 7. Optional lap completion bonus
         # -------------------------
         lap_bonus = 0.0
-        if self.lap_completed and len(self.lap_times) == 1:  # new lap just completed
+        if getattr(self, "lap_completed", False) and len(getattr(self, "lap_times", [])) == 1:
             lap_bonus = 1000.0
 
         # -------------------------
-        # 7. Combine all components
+        # 8. Combine all components
         # -------------------------
-        reward = reward_progress + reward_speed + reward_heading + reward_lateral + offtrack_penalty + lap_bonus
+        reward = (
+            reward_progress +
+            reward_speed +
+            reward_heading +
+            reward_lateral +
+            offtrack_penalty +
+            lap_bonus
+        )
 
-        # Clip reward to avoid TD explosion
-        reward = np.clip(reward, -50, 50)
+        # Clip reward to stable range
+        reward = float(np.clip(reward, -50.0, 50.0))
 
-        if debug: 
-            # Debug logging (optional)
-            print(f"[REW DEBUG] Δm={delta_m:.4f}, prog={progress:.3f}, speed={v_norm:.3f}, "
-                f"head={np.cos(heading_err):.3f}, lat={lat_err:.3f}, dist_off={self.dist_offtrack:.3f}, "
-                f"off={offtrack_penalty:.3f} -> total={reward:.3f}")
+        if debug:
+            print(f"[REW DEBUG] Δm={delta_m:.4f}, v={v_norm:.3f}, head_err={heading_err:.3f}, "
+                f"lat_err={lat_err:.3f}, offtrack={self.dist_offtrack:.3f}, "
+                f"stat_steps={self.stationary_steps}, reward={reward:.3f}")
 
         return reward
-
 
 
     def _check_done(self, obs):
@@ -237,7 +262,7 @@ class RacingEnv:
         if mode == "realtime":
             if self.fig is None:
                 self.fig, self.ax = plt.subplots(figsize=(8, 6))
-                self.track.visualize(ax=self.ax, show_curvature=False)
+                self.track.visualize(ax=self.ax)
                 self.car_marker, = self.ax.plot([], [], 'ro', markersize=5)
                 self.traj_line, = self.ax.plot([], [], 'orange', lw=2, alpha=0.7)
                 plt.ion()
@@ -258,7 +283,6 @@ class RacingEnv:
 
             fig, ax = plt.subplots(figsize=(8, 6))
             self.track.visualize(ax=ax,
-                                show_curvature=False,
                                 car_state=(self.car.x, self.car.y, self.car.yaw),
                                 car_traj=self.car_traj)
             ax.set_title(f"Step: {self.step_count}")
@@ -269,6 +293,7 @@ class RacingEnv:
 
         else:
             raise ValueError("mode must be either 'realtime' or 'gif'")
+
 
     def save_gif(self, filename="race.gif", fps=30):
         """Combine saved frames into an animated GIF."""
